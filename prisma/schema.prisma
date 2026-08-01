@@ -1,0 +1,146 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider  = "postgresql"
+}
+
+// Enums for Room and Invoice status
+enum RoomStatus {
+  AVAILABLE
+  OCCUPIED
+  OVERDUE
+}
+
+enum InvoiceStatus {
+  PENDING
+  PAID
+  OVERDUE
+  CANCELLED
+}
+
+enum TelegramLinkStatus {
+  UNLINKED
+  PENDING
+  LINKED
+  BROKEN
+}
+
+enum NotificationChannel {
+  TELEGRAM
+  WHATSAPP
+}
+
+enum Locale {
+  ID
+  EN
+}
+
+model User {
+  id           String     @id @default(cuid())
+  email        String     @unique
+  passwordHash String
+  name         String
+  preferredLocale Locale  @default(ID)
+  createdAt    DateTime   @default(now())
+  updatedAt    DateTime   @updatedAt
+
+  properties   Property[]
+}
+
+model Property {
+  id          String    @id @default(cuid())
+  userId      String
+  user        User      @relation(fields: [userId], references: [id])
+  name        String
+  address     String
+  description String?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  rooms       Room[]
+  tenants     Tenant[]
+  invoices    Invoice[]
+}
+
+model Room {
+  id              String     @id @default(cuid())
+  propertyId      String
+  property        Property   @relation(fields: [propertyId], references: [id])
+  roomNumber      String
+  rentAmount      Float
+  status          RoomStatus @default(AVAILABLE)
+  // currentTenantId links to the Tenant who is currently occupying this room.
+  // It's unique to ensure a room has at most one current tenant.
+  currentTenantId String?    @unique
+  currentTenant   Tenant?    @relation("CurrentRoomOccupancy", fields: [currentTenantId], references: [id])
+  createdAt       DateTime   @default(now())
+  updatedAt       DateTime   @updatedAt
+
+  invoices        Invoice[]
+
+  @@unique([propertyId, roomNumber])
+}
+
+model Tenant {
+  id                         String              @id @default(cuid())
+  propertyId                 String
+  property                   Property            @relation(fields: [propertyId], references: [id])
+  name                       String
+  phoneNumber                String
+  telegramChatId             String?             @unique
+  telegramLinkStatus         TelegramLinkStatus  @default(UNLINKED)
+  telegramLinkToken          String?             @unique
+  telegramLinkTokenExpiresAt DateTime?
+  preferredLocale            Locale              @default(ID)
+  checkInDate                DateTime
+  checkOutDate               DateTime?
+  isActive                   Boolean             @default(true)
+  createdAt                  DateTime            @default(now())
+  updatedAt                  DateTime            @updatedAt
+
+  invoices          Invoice[]
+  notificationLogs  NotificationLog[]
+  // Back-relation for current occupancy. A tenant can be the current occupant of one room.
+  room              Room?               @relation("CurrentRoomOccupancy")
+
+  @@unique([propertyId, phoneNumber])
+}
+
+model NotificationLog {
+  id            String               @id @default(cuid())
+  invoiceId     String
+  invoice       Invoice              @relation(fields: [invoiceId], references: [id])
+  tenantId      String
+  tenant        Tenant               @relation(fields: [tenantId], references: [id])
+  channel       NotificationChannel
+  delivered     Boolean              @default(false)
+  failureReason String?
+  sentAt        DateTime             @default(now())
+}
+
+model Invoice {
+  id                   String        @id @default(cuid())
+  tenantId             String
+  tenant               Tenant        @relation(fields: [tenantId], references: [id])
+  roomId               String
+  room                 Room          @relation(fields: [roomId], references: [id])
+  propertyId           String
+  property             Property      @relation(fields: [propertyId], references: [id])
+  amount               Float
+  dueDate              DateTime
+  billingPeriodStart   DateTime
+  billingPeriodEnd     DateTime
+  status               InvoiceStatus @default(PENDING)
+  paymentGatewayRefId  String?
+  paidAt               DateTime?
+  invoiceUrl           String        @unique // Unique URL for tenant access
+  createdAt            DateTime      @default(now())
+  updatedAt            DateTime      @updatedAt
+
+  notificationLogs     NotificationLog[]
+}
